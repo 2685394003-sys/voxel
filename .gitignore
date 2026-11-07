@@ -1,0 +1,21 @@
+# 构建产物与本地缓存
+dist/
+node_modules/
+.forgeax/
+.assetlib/
+artifacts/
+
+# AI 工具本地目录：每个目录下都是一份重复的 SDK skill 文档副本，合计约 15 MB
+skills/
+.agents/
+.claude/
+.codebuddy/
+.cursor/
+.workbuddy/
+
+# 编辑器与系统噪音
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

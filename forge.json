@@ -1,0 +1,15 @@
+{
+  "id": "voxel-warship",
+  "name": "Voxel Warship",
+  "schemaVersion": "3.0.0",
+  "assetRoots": [
+    "assets"
+  ],
+  "assetLibraries": [
+    "@forgeax/engine/content"
+  ],
+  "roots": {
+    "engine": "acd36c75-755b-577d-9c5a-e6deebb0ed40",
+    "frontend": "eba035f8-b41f-5c1d-b2cd-8167832fa370"
+  }
+}
