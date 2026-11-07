@@ -63,7 +63,7 @@ SDK 的硬规定（`engine-sdk-0.4.19/skills/forgeax-engine-sdk/SDK-README.md` �
 | 13 个设施体块、战舰、炮塔、炮管、瞄准环、12 发弹药池 | 同上 + `assets/geometry.pack.ts` |
 | 地面 / 水面 / 四档设施色调 / 船体 / 弹药 / 瞄准环材质 | `assets/materials.pack.ts` |
 | 全部可调数值（地图、设施、船、炮、弹道、相机） | `assets/city/facility-config.ts`（唯一调参面） |
-| HUD（计时 / 已摧毁 / 军费 / 四格装载池） | `assets/hud/hud-controller.ts` |
+| HUD（计时 / 已摧毁 / 军费 / 六格装载池） | `assets/hud/hud-controller.ts` |
 
 ### 一处已废弃并已删除的路径
 

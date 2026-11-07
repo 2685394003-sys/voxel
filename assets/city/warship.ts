@@ -5,6 +5,11 @@ import { viewportToWorld } from '@forgeax/engine/picking';
 import type { Plugin } from '@forgeax/engine/plugin';
 import { PROPAGATE_TRANSFORMS_SYSTEM, Transform } from '@forgeax/engine/scene';
 import { resolveCityEntity, type CityScene } from './city-refs.ts';
+import { HUD_CHANNEL } from './pack-ids.ts';
+import {
+  createArsenalState, drawPool, loadoutCount, moveWithinLoadout, POOL_SIZE, purchase,
+  purchaseToSlot, refresh, REFRESH_COST, sell, toCardView, type ActionResult, type ArsenalRng,
+} from './arsenal.ts';
 import {
   AIM_MARKER_Y, AIM_RING_QUAT, applyDamage, BULLET_PARK_Y, BULLET_POOL_SIZE, createCityState,
   createShipState, FACILITY_PLACEMENTS, MAP, segmentHitsFacility, SHIP, steerTurret, stepShip,
@@ -88,6 +93,13 @@ export const warship: Plugin.Object<Record<string, never>> = {
     const readDrawingBufferSize = host.drawingBufferSize?.bind(host);
     const ship = createShipState();
     const city = createCityState();
+
+    // 军需库：开局发一手 4 张。抽卡要扣军费，所以必须住在 engine realm，
+    // HUD 只拿 CardView 显示、只发 purchase / refresh 意图。
+    const arsenal = createArsenalState();
+    // 可复现随机源。做种子系统时把这里换掉，其余逻辑不用动。
+    const arsenalRng: ArsenalRng = (max) => Math.floor(Math.random() * max);
+    drawPool(arsenal, arsenalRng);
 
     // 语义输入：Update 采样，FixedUpdate 消费。两者解耦后不受帧率影响。
     let intentForward = 0;
@@ -199,6 +211,75 @@ export const warship: Plugin.Object<Record<string, never>> = {
     };
 
     ctx.effect(function* () {
+      // 最近一次操作的结果。HUD 靠 seq 变化判断"有没有新事件"，
+      // 从而只在真的失败时弹一次提示，不必自己重复实现判定。
+      let actionSeq = 0;
+      let lastResult: { seq: number; ok: boolean; reason?: string } | null = null;
+      const record = (result: ActionResult) => {
+        actionSeq += 1;
+        lastResult = result.ok
+          ? { seq: actionSeq, ok: true }
+          : { seq: actionSeq, ok: false, reason: result.reason };
+      };
+
+      /** 推一次完整状态。操作成功后立即调一次，别让玩家等 10 Hz 的节拍。 */
+      const pushHudState = () => {
+        host.port?.postMessage({
+          channel: HUD_CHANNEL,
+          kind: 'state',
+          state: {
+            elapsed,
+            funds: city.funds,
+            destroyed: city.destroyedCount,
+            total: city.facilities.length,
+            loadout: arsenal.loadout.map(toCardView),
+            pool: arsenal.pool.map(toCardView),
+            refreshCost: REFRESH_COST,
+            lastResult,
+          },
+        });
+      };
+
+      // ── HUD → 引擎：购买 / 拖拽 / 出售 / 刷新意图 ──────────────
+      // 只收意图，扣钱和改状态都在这里做——HUD 永远不持有军费所有权。
+      const onHudAction = (event: MessageEvent) => {
+        const data = event.data as
+          | {
+            channel?: unknown; kind?: unknown; action?: unknown;
+            index?: unknown; poolIndex?: unknown; slotIndex?: unknown; from?: unknown; to?: unknown;
+          }
+          | undefined;
+        if (data === undefined || data === null || typeof data !== 'object') return;
+        if (data.channel !== HUD_CHANNEL || data.kind !== 'action') return;
+        switch (data.action) {
+          case 'refresh':
+            record(refresh(arsenal, city, arsenalRng));
+            break;
+          case 'purchase':
+            if (typeof data.index !== 'number') return;
+            record(purchase(arsenal, data.index, city));
+            break;
+          case 'purchase-to-slot':
+            if (typeof data.poolIndex !== 'number' || typeof data.slotIndex !== 'number') return;
+            record(purchaseToSlot(arsenal, data.poolIndex, data.slotIndex, city));
+            break;
+          case 'move-slot':
+            if (typeof data.from !== 'number' || typeof data.to !== 'number') return;
+            record(moveWithinLoadout(arsenal, data.from, data.to));
+            break;
+          case 'sell':
+            if (typeof data.index !== 'number') return;
+            record(sell(arsenal, data.index, city));
+            break;
+          default:
+            return;
+        }
+        pushHudState();
+      };
+      host.port?.addEventListener('message', onHudAction);
+      host.port?.start();
+      yield () => host.port?.removeEventListener('message', onHudAction);
+
       // ── 输入与瞄准（每帧）──────────────────────────────────────
       world.addSystem(Update, {
         name: 'voxel-warship-aim',
@@ -277,16 +358,7 @@ export const warship: Plugin.Object<Record<string, never>> = {
           hudPushTimer += dt;
           if (hudPushTimer >= HUD_PUSH_INTERVAL) {
             hudPushTimer = 0;
-            host.port?.postMessage({
-              channel: 'voxel-warship/hud',
-              kind: 'state',
-              state: {
-                elapsed,
-                funds: city.funds,
-                destroyed: city.destroyedCount,
-                total: city.facilities.length,
-              },
-            });
+            pushHudState();
           }
         },
       }).unwrap();
@@ -347,6 +419,16 @@ export const warship: Plugin.Object<Record<string, never>> = {
           pointer: { present: pointerPresent, x: pointerX, y: pointerY },
           viewport: { width: viewportWidth, height: viewportHeight },
           rayMisses: rayMissed,
+          // 军需库：验收脚本靠这几个字段断言"买卡扣钱 / 池里不重复 / 刷新重抽"。
+          arsenal: {
+            loadout: arsenal.loadout.map((card) => card?.id ?? null),
+            pool: arsenal.pool.map((card) => card?.id ?? null),
+            owned: [...arsenal.owned],
+            loadoutCount: loadoutCount(arsenal),
+            refreshCost: REFRESH_COST,
+            poolSize: POOL_SIZE,
+            lastResult,
+          },
         }),
       });
       if (unregisterRead !== undefined) yield unregisterRead;
